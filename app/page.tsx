@@ -1,18 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
+import AuthButton from "@/components/AuthButton";
 import type { Portfolio } from "@/lib/portfolio";
 
 function usd(n: number) {
   try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency: "USD",
-      maximumFractionDigits: 2,
-    }).format(n);
-  } catch {
-    return `$${n.toFixed(2)}`;
-  }
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n);
+  } catch { return `$${n.toFixed(2)}`; }
 }
 
 function chainLabel(network: string) {
@@ -30,14 +26,22 @@ function formatBalance(balance: string) {
 }
 
 export default function Page() {
-  const [address, setAddress] = useState("");
+  const { authenticated, ready, createWallet } = usePrivy();
+  const { wallets } = useWallets();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<Portfolio | null>(null);
 
+  const walletAddress = wallets?.[0]?.address ?? null;
   const total = data?.totalValue ?? 0;
 
-  async function load() {
+  useEffect(() => {
+    if (authenticated && ready && wallets.length === 0) {
+      createWallet().catch(() => {});
+    }
+  }, [authenticated, ready, wallets]);
+
+  async function load(address: string) {
     setLoading(true);
     setError(null);
     setData(null);
@@ -48,9 +52,7 @@ export default function Page() {
         body: JSON.stringify({ address: address.trim() }),
       });
       const json = await r.json();
-      if (!r.ok) {
-        throw new Error(json.error ?? json.detail ?? "Could not load portfolio");
-      }
+      if (!r.ok) throw new Error(json.error ?? json.detail ?? "Could not load portfolio");
       setData(json as Portfolio);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
@@ -59,104 +61,77 @@ export default function Page() {
     }
   }
 
+  useEffect(() => {
+    if (authenticated && walletAddress) {
+      load(walletAddress);
+    }
+  }, [authenticated, walletAddress]);
+
   const pricedCount = useMemo(
     () => data?.positions.filter((p) => p.valueUsd != null).length ?? 0,
     [data],
   );
+
+  if (!ready) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="text-sm text-muted">Loading...</p>
+      </div>
+    );
+  }
+
+  if (!authenticated) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-8 px-6">
+        <div className="text-center">
+          <p className="text-sm font-medium tracking-[0.2em] text-accent">🏛️ BERCY</p>
+          <h1 className="mt-2 text-4xl font-semibold tracking-tight">One account. Every chain. Zero fees.</h1>
+          <p className="mt-3 text-sm leading-6 text-muted">Sign in with your email — no seed phrase, no crypto knowledge needed.</p>
+        </div>
+        <AuthButton />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-6 py-10">
         <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-sm font-medium tracking-[0.2em] text-accent">
-              🏛️ BERCY
-            </p>
-            <h1 className="mt-2 max-w-xl text-4xl font-semibold tracking-tight">
-              One account. Every chain. Zero fees.
-            </h1>
-            <p className="mt-3 max-w-lg text-sm leading-6 text-muted">
-              Load any Ethereum, Base, or Solana wallet. Balances stay exact
-              with BigInt math. Alchemy keys never leave the server.
-            </p>
+            <p className="text-sm font-medium tracking-[0.2em] text-accent">🏛️ BERCY</p>
+            <h1 className="mt-2 max-w-xl text-4xl font-semibold tracking-tight">One account. Every chain. Zero fees.</h1>
+            <p className="mt-3 max-w-lg text-sm leading-6 text-muted">Load any Ethereum, Base, or Solana wallet. Balances stay exact with BigInt math.</p>
           </div>
+          <AuthButton />
         </header>
 
-        <form
-          className="mt-10 grid grid-cols-1 items-end gap-3 md:grid-cols-[1fr_auto]"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (address.trim()) void load();
-          }}
-        >
-          <div>
-            <label htmlFor="wallet" className="text-xs font-medium text-muted">
-              Wallet address
-            </label>
-            <input
-              id="wallet"
-              name="wallet"
-              autoComplete="off"
-              spellCheck={false}
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="0x… or Solana address"
-              className="mt-1 h-11 w-full rounded-xl border border-line bg-card px-3 font-mono text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-accent"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={loading || !address.trim()}
-            className="h-11 min-w-[10rem] rounded-xl bg-accent px-5 text-sm font-semibold text-accent-fg transition-opacity disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-          >
-            {loading ? "Loading…" : "Load Portfolio"}
-          </button>
-        </form>
+        {authenticated && !walletAddress && (
+          <div className="mt-6 text-sm text-muted">Creating your wallet...</div>
+        )}
 
         {error && (
-          <div
-            role="alert"
-            className="mt-4 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"
-          >
+          <div role="alert" className="mt-4 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
             <p>{error}</p>
-            <button
-              type="button"
-              onClick={() => void load()}
-              className="mt-2 h-10 text-sm font-medium underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-accent"
-            >
-              Try again
-            </button>
           </div>
         )}
 
         {loading && (
-          <section className="mt-8 grid gap-4" aria-busy="true" aria-live="polite">
+          <section className="mt-8 grid gap-4">
             <div className="h-28 animate-pulse rounded-2xl bg-card" />
             <div className="h-64 animate-pulse rounded-2xl bg-card" />
-            <span className="sr-only">Loading portfolio</span>
           </section>
         )}
 
         {data && (
           <section className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="rounded-2xl border border-line bg-card p-5">
-              <div className="text-xs uppercase tracking-wide text-muted">
-                Total portfolio value
-              </div>
-              <div className="mt-2 font-mono text-3xl font-semibold">
-                {usd(total)}
-              </div>
+              <div className="text-xs uppercase tracking-wide text-muted">Total portfolio value</div>
+              <div className="mt-2 font-mono text-3xl font-semibold">{usd(total)}</div>
             </div>
             <div className="rounded-2xl border border-line bg-card p-5">
-              <div className="text-xs uppercase tracking-wide text-muted">
-                Positions
-              </div>
-              <div className="mt-2 font-mono text-3xl font-semibold">
-                {data.positions.length}
-              </div>
-              <p className="mt-1 text-xs text-muted">
-                {pricedCount} with USD prices
-              </p>
+              <div className="text-xs uppercase tracking-wide text-muted">Positions</div>
+              <div className="mt-2 font-mono text-3xl font-semibold">{data.positions.length}</div>
+              <p className="mt-1 text-xs text-muted">{pricedCount} with USD prices</p>
             </div>
           </section>
         )}
@@ -164,7 +139,6 @@ export default function Page() {
         {data?.positions.length ? (
           <section className="mt-6 overflow-x-auto rounded-2xl border border-line bg-card">
             <table className="min-w-full text-sm">
-              <caption className="sr-only">Token balances</caption>
               <thead>
                 <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
                   <th className="px-4 py-3 font-medium">Symbol</th>
@@ -182,15 +156,9 @@ export default function Page() {
                     <tr key={`${p.network}-${p.contractAddress}-${idx}`} className="border-t border-line">
                       <td className="px-4 py-3 font-medium">{p.symbol}</td>
                       <td className="px-4 py-3 text-muted">{chainLabel(p.network)}</td>
-                      <td className="px-4 py-3 text-right font-mono">
-                        {formatBalance(p.balance)}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono">
-                        {p.valueUsd != null ? usd(p.valueUsd) : "—"}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono">
-                        {p.valueUsd != null ? `${weight.toFixed(1)}%` : "—"}
-                      </td>
+                      <td className="px-4 py-3 text-right font-mono">{formatBalance(p.balance)}</td>
+                      <td className="px-4 py-3 text-right font-mono">{p.valueUsd != null ? usd(p.valueUsd) : "—"}</td>
+                      <td className="px-4 py-3 text-right font-mono">{p.valueUsd != null ? `${weight.toFixed(1)}%` : "—"}</td>
                     </tr>
                   );
                 })}
@@ -201,14 +169,7 @@ export default function Page() {
 
         {data && data.positions.length === 0 && (
           <section className="mt-6 rounded-2xl border border-dashed border-line p-6 text-sm text-muted">
-            No token balances found for this address on Ethereum, Base, or Solana.
-          </section>
-        )}
-
-        {!data && !loading && !error && (
-          <section className="mt-10 rounded-2xl border border-dashed border-line p-6 text-sm text-muted">
-            Enter a wallet address and load the portfolio to see balances, USD
-            value, and weight across chains.
+            No token balances found on Ethereum, Base, or Solana.
           </section>
         )}
 
