@@ -6,18 +6,15 @@ import AuthButton from "@/components/AuthButton";
 import type { Portfolio } from "@/lib/portfolio";
 
 function usd(n: number) {
-  try {
-    return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n);
-  } catch { return `$${n.toFixed(2)}`; }
+  try { return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n); }
+  catch { return `$${n.toFixed(2)}`; }
 }
-
 function chainLabel(network: string) {
   if (network === "eth-mainnet") return "Ethereum";
   if (network === "base-mainnet") return "Base";
   if (network === "solana-mainnet") return "Solana";
   return network;
 }
-
 function formatBalance(balance: string) {
   const n = Number(balance);
   if (!Number.isFinite(n)) return balance;
@@ -26,59 +23,41 @@ function formatBalance(balance: string) {
 }
 
 export default function Page() {
-  const { authenticated, ready, createWallet } = usePrivy();
+  const { authenticated, ready } = usePrivy();
   const { wallets } = useWallets();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<Portfolio | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  const walletAddress = wallets?.[0]?.address ?? null;
+  const solanaWallet = wallets.find((w) => (w as any).chainType === "solana");
+  const primaryWallet = solanaWallet ?? wallets[0];
+  const walletAddress = primaryWallet?.address ?? null;
   const total = data?.totalValue ?? 0;
 
-  useEffect(() => {
-    if (authenticated && ready && wallets.length === 0) {
-      createWallet().catch(() => {});
-    }
-  }, [authenticated, ready, wallets]);
-
   async function load(address: string) {
-    setLoading(true);
-    setError(null);
-    setData(null);
+    setLoading(true); setError(null); setData(null);
     try {
-      const r = await fetch("/api/tokens", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ address: address.trim() }),
-      });
+      const r = await fetch("/api/tokens", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: address.trim() }) });
       const json = await r.json();
       if (!r.ok) throw new Error(json.error ?? json.detail ?? "Could not load portfolio");
       setData(json as Portfolio);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { setError(e instanceof Error ? e.message : "Something went wrong"); }
+    finally { setLoading(false); }
   }
 
-  useEffect(() => {
-    if (authenticated && walletAddress) {
-      load(walletAddress);
-    }
-  }, [authenticated, walletAddress]);
+  useEffect(() => { if (authenticated && walletAddress) { load(walletAddress); } }, [authenticated, walletAddress]);
 
-  const pricedCount = useMemo(
-    () => data?.positions.filter((p) => p.valueUsd != null).length ?? 0,
-    [data],
-  );
+  const pricedCount = useMemo(() => data?.positions.filter((p) => p.valueUsd != null).length ?? 0, [data]);
 
-  if (!ready) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p className="text-sm text-muted">Loading...</p>
-      </div>
-    );
+  function copyAddress() {
+    if (!walletAddress) return;
+    navigator.clipboard.writeText(walletAddress);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
+
+  if (!ready) return <div className="flex min-h-screen items-center justify-center"><p className="text-sm text-muted">Loading...</p></div>;
 
   if (!authenticated) {
     return (
@@ -100,20 +79,24 @@ export default function Page() {
           <div>
             <p className="text-sm font-medium tracking-[0.2em] text-accent">🏛️ BERCY</p>
             <h1 className="mt-2 max-w-xl text-4xl font-semibold tracking-tight">One account. Every chain. Zero fees.</h1>
-            <p className="mt-3 max-w-lg text-sm leading-6 text-muted">Load any Ethereum, Base, or Solana wallet. Balances stay exact with BigInt math.</p>
+            <p className="mt-3 max-w-lg text-sm leading-6 text-muted">Your Solana wallet. Multi-chain portfolio. Alchemy-powered.</p>
           </div>
           <AuthButton />
         </header>
 
-        {authenticated && !walletAddress && (
-          <div className="mt-6 text-sm text-muted">Creating your wallet...</div>
-        )}
-
-        {error && (
-          <div role="alert" className="mt-4 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
-            <p>{error}</p>
+        {walletAddress && (
+          <div className="mt-6 rounded-2xl border border-line bg-card p-5">
+            <div className="text-xs uppercase tracking-wide text-muted mb-3">Your Solana Wallet</div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-mono text-sm break-all text-accent">{walletAddress}</span>
+              <button onClick={copyAddress} className="shrink-0 px-4 py-2 rounded-lg border border-line text-xs font-medium hover:border-accent hover:text-accent transition">
+                {copied ? "Copied ✓" : "Copy"}
+              </button>
+            </div>
           </div>
         )}
+
+        {error && <div role="alert" className="mt-4 rounded-xl border border-red-900 bg-red-950 p-4 text-sm text-red-200"><p>{error}</p></div>}
 
         {loading && (
           <section className="mt-8 grid gap-4">
@@ -123,7 +106,7 @@ export default function Page() {
         )}
 
         {data && (
-          <section className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <section className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="rounded-2xl border border-line bg-card p-5">
               <div className="text-xs uppercase tracking-wide text-muted">Total portfolio value</div>
               <div className="mt-2 font-mono text-3xl font-semibold">{usd(total)}</div>
@@ -169,13 +152,11 @@ export default function Page() {
 
         {data && data.positions.length === 0 && (
           <section className="mt-6 rounded-2xl border border-dashed border-line p-6 text-sm text-muted">
-            No token balances found on Ethereum, Base, or Solana.
+            No token balances found. Fund your wallet to get started.
           </section>
         )}
 
-        <footer className="mt-auto pt-12 text-center text-xs text-muted">
-          Built on Solana · Powered by Alchemy
-        </footer>
+        <footer className="mt-auto pt-12 text-center text-xs text-muted">Built on Solana · Powered by Alchemy</footer>
       </div>
     </div>
   );
