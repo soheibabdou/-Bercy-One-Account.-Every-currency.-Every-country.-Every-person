@@ -22,17 +22,24 @@ function formatBalance(balance: string) {
   return n.toLocaleString(undefined, { maximumFractionDigits: 6 });
 }
 
+function getSolanaAddress(user: any): string | null {
+  if (!user) return null;
+  const accounts = user.linkedAccounts ?? [];
+  const sol = accounts.find((a: any) => a.type === "wallet" && a.chainType === "solana");
+  if (sol?.address) return sol.address;
+  const any = accounts.find((a: any) => a.type === "wallet");
+  return any?.address ?? user.wallet?.address ?? null;
+}
+
 export default function Page() {
-  const { authenticated, ready } = usePrivy();
+  const { authenticated, ready, user } = usePrivy();
   const { wallets } = useWallets();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<Portfolio | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const solanaWallet = wallets.find((w) => (w as any).chainType === "solana");
-  const primaryWallet = solanaWallet ?? wallets[0];
-  const walletAddress = primaryWallet?.address ?? null;
+  const walletAddress = getSolanaAddress(user) ?? wallets?.[0]?.address ?? null;
   const total = data?.totalValue ?? 0;
 
   async function load(address: string) {
@@ -46,7 +53,7 @@ export default function Page() {
     finally { setLoading(false); }
   }
 
-  useEffect(() => { if (authenticated && walletAddress) { load(walletAddress); } }, [authenticated, walletAddress]);
+  useEffect(() => { if (authenticated && walletAddress) load(walletAddress); }, [authenticated, walletAddress]);
 
   const pricedCount = useMemo(() => data?.positions.filter((p) => p.valueUsd != null).length ?? 0, [data]);
 
